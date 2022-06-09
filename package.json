@@ -1,0 +1,16 @@
+{
+  "name": "slack-bot",
+  "version": "0.0.0",
+  "devDependencies": {
+    "wrangler": "2.0.8"
+  },
+  "private": true,
+  "scripts": {
+    "start": "wrangler dev",
+    "deploy": "wrangler publish"
+  },
+  "dependencies": {
+    "dayjs": "^1.11.3",
+    "qs": "^6.10.5"
+  }
+}
