@@ -13,7 +13,8 @@ async function handleRequest(request) {
 
         return new Response(
             JSON.stringify({
-                text: await currency.text(),
+                // https://api.slack.com/reference/block-kit
+                blocks: await currency.blocks(),
                 response_type: 'in_channel',
             }),
             { headers: { 'Content-type': 'application/json' } }

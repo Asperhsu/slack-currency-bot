@@ -28,15 +28,18 @@ const currencyNames = {
     'CNY': '人民幣',
 };
 
+const array_chunk = function (list, chunkSize) {
+    return [...Array(Math.ceil(list.length / chunkSize))].map((_,i) => list.slice(i*chunkSize,i*chunkSize+chunkSize));
+}
+
 class Currency {
     constructor(params) {
         this.params = params;
         this.currencies = Object.keys(currencyNames);
     }
 
-    async text() {
-        let messages = await this.handle(this.params);
-        return messages.filter(message => message).join('\n');
+    async blocks() {
+        return await this.handle(this.params);
     }
 
     async handle(params) {
@@ -87,75 +90,194 @@ class Currency {
     }
 
     replyHelp(command) {
+        const availableCurrencies = array_chunk(Object.entries(currencyNames), 10).map(rows => {
+            return {
+                "type": "section",
+                "fields": rows.map(([key, value]) => {
+                    return {
+                        "type": "plain_text",
+                        "text": `${key} - ${value}`
+                    };
+                }),
+            };
+        });
+
         return [
-            ':: 查詢匯率說明 ::',
-            '查詢匯率請使用: 匯率 [幣名]',
-            '查詢匯率與台幣兌換請使用: 匯率 [幣名] [台幣數量]',
-            '查詢匯率與外幣兌換請使用: 匯率 [台幣數量] [幣名]',
-            '可用幣別有 ' + (this.currencies.join(', ')),
-        ];
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": [
+                        "*查詢匯率說明*",
+                        "- 查詢匯率: `匯率 [外幣代碼]`",
+                        "- 台幣轉外幣: `匯率 [外幣代碼] [台幣值]`",
+                        "- 外幣轉台幣: `匯率 [外幣值] [外幣代碼]`",
+                    ].join('\n'),
+                },
+            },
+            {
+                "type": "divider"
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "可用外幣"
+                    },
+                ]
+            },
+        ].concat(...availableCurrencies);
     }
 
     async replyRate(command) {
         const data = await this.fetchRate(command.currency);
         if (!data) {
-            return ['取得匯率資料失敗'];
+            return [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "取得匯率資料失敗",
+                    },
+                },
+            ];
         }
 
-        const history = [
+        const elements = [
             ['day', '日歷史'],
             ['ltm', '三月歷史'],
             ['l6m', '半年歷史'],
         ].map(row => {
-            return '<https://rate.bot.com.tw/xrt/quote/:type/:currency| :label>'
-                .replace(':type', row[0])
-                .replace(':currency', data.currency.toLowerCase())
-                .replace(':label', row[1]);
-        }).join(' | ');
+            return {
+                "type": "button",
+                "text": {
+                    "type": "plain_text",
+                    "text": row[1]
+                },
+                "url": 'https://rate.bot.com.tw/xrt/quote/:type/:currency'
+                    .replace(':type', row[0])
+                    .replace(':currency', data.currency.toLowerCase()),
+            };
+        });
 
         return [
-            `台幣(TWD) => ${data.name}(${data.currency}) (更新時間: ${data.updated_at.fromNow()})`,
-            `　現金匯率: 買入 ${data.rates.cash_buying}, 賣出 ${data.rates.cash_selling}`,
-            `　即期匯率: 買入 ${data.rates.spot_buying}, 賣出 ${data.rates.spot_selling}`,
-            '　<https://rate.bot.com.tw/xrt| 資料來源: 台灣銀行> | ' + history,
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": `*台幣(TWD) > ${data.name}(${data.currency})*`,
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": `(更新時間: ${data.updated_at.fromNow()})`,
+                    }
+                ]
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {
+                        "type": "mrkdwn",
+                        "text": [
+                            '*現金匯率*',
+                            `買入 ${data.rates.cash_buying}`,
+                            `賣出 ${data.rates.cash_selling}`,
+                        ].join('\n'),
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": [
+                            '*即期匯率*',
+                            `買入 ${data.rates.spot_buying}`,
+                            `賣出 ${data.rates.spot_selling}`,
+                        ].join('\n'),
+                    },
+                ]
+            },
+            {
+                "type": "divider"
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "資料來源: <https://rate.bot.com.tw/xrt|台灣銀行>",
+                    },
+                ]
+            },
+            {
+                "type": "actions",
+                "elements": elements,
+            },
         ];
     }
 
     async replyToTwd(command) {
         const data = await this.fetchRate(command.currency);
         if (!data) {
-            return ['取得匯率資料失敗'];
+            return [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "取得匯率資料失敗",
+                    },
+                },
+            ];
         }
 
         let rate = data.rates.cash_selling;
         let twd = Math.round(command.amount * rate * 100) / 100;
 
         return [
-            ':amount :name(:currency) = :twd 台幣(TWD) :: 匯率 :rate'
-                .replace(':amount', this.numberFormat(command.amount))
-                .replace(':name', data.name)
-                .replace(':currency', data.currency)
-                .replace(':twd', this.numberFormat(twd))
-                .replace(':rate', rate)
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": '`$:amount` :name(:currency) = `$:twd` 台幣(TWD) :: 匯率 `:rate`'
+                        .replace(':amount', this.numberFormat(command.amount))
+                        .replace(':name', data.name)
+                        .replace(':currency', data.currency)
+                        .replace(':twd', this.numberFormat(twd))
+                        .replace(':rate', rate)
+                },
+            },
         ];
     }
 
     async replytoCurrency(command) {
         const data = await this.fetchRate(command.currency);
         if (!data) {
-            return ['取得匯率資料失敗'];
+            return [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "取得匯率資料失敗",
+                    },
+                },
+            ];
         }
 
         let rate = data.rates.cash_selling;
         let calcAmount = Math.round(command.amount / rate * 100) / 100;
 
         return [
-            ':amount 台幣(TWD) = :calcAmount :name(:currency) :: 匯率 :rate'
-                .replace(':amount', this.numberFormat(command.amount))
-                .replace(':calcAmount', this.numberFormat(calcAmount))
-                .replace(':name', data.name)
-                .replace(':currency', data.currency)
-                .replace(':rate', rate)
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": '`$:amount` 台幣(TWD) = `$:calcAmount` :name(:currency) :: 匯率 `:rate`'
+                        .replace(':amount', this.numberFormat(command.amount))
+                        .replace(':calcAmount', this.numberFormat(calcAmount))
+                        .replace(':name', data.name)
+                        .replace(':currency', data.currency)
+                        .replace(':rate', rate)
+                },
+            },
         ];
     }
 
